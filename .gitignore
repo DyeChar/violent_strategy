@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.eggs/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 数据缓存（太大不推送）
+output/local_cache/
+output/kline_cache/
+output/*.csv
+
+# 保留图表
+!output/charts/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# 环境变量（敏感信息）
+.env
+*.env
