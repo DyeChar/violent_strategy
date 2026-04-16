@@ -1,76 +1,99 @@
 """
-暴力战法选股策略配置文件
-包含4阶段策略的所有参数设置
+暴力战法选股系统配置文件
+包含所有策略参数和数据路径设置
+
+命名规范：
+- 涨停相关使用 limit_up（不用zt）
+- 日期格式统一使用 YYYY-MM-DD
 """
 
 import os
+from datetime import datetime
 
-# ==================== 基础路径 ====================
+# ==================== 项目路径 ====================
 
-# 项目根目录
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIR = os.path.join(PROJECT_DIR, 'output')
+DATA_DIR = os.path.join(OUTPUT_DIR, 'data')
+CACHE_DIR = os.path.join(OUTPUT_DIR, 'cache')
 CHARTS_DIR = os.path.join(OUTPUT_DIR, 'charts')
+REPORTS_DIR = os.path.join(OUTPUT_DIR, 'reports')
 
-# ==================== 阶段1: 前期下跌 ====================
+# 数据文件路径
+LIMIT_UP_HISTORY_FILE = os.path.join(DATA_DIR, 'limit_up_history.csv')
+STOCK_POOL_FILE = os.path.join(DATA_DIR, 'stock_pool.json')
 
-# 从前期高点下跌至少20%
-DRAWBACK_THRESHOLD = 0.20      # 回调阈值，20%
-DRAWBACK_LOOKBACK = 60        # 寻找前期高点的回溯天数（约3个月）
+# ==================== 涨停池参数 ====================
 
-# ==================== 阶段2: 放量吸筹 ====================
+LIMIT_UP_THRESHOLD = 9.0           # 涨停阈值（涨幅 >= 9%）
+LIMIT_UP_POOL_LOOKBACK = 30        # 涨停池回看天数（近30天有过涨停）
 
-# 量能放大至前面的2倍以上，至少持续两天以上
-VOLUME_RATIO_THRESHOLD = 2.0  # 放量倍数阈值（相对于前期均量）
-VOLUME_CONTINUOUS_DAYS = 2    # 连续放量天数要求
-VOLUME_MA_PERIOD = 5          # 前期均量计算周期
+# ==================== 策略参数 ====================
 
-# ==================== 阶段3: 红肥绿瘦 ====================
+# 阶段1：放量吸筹
+VOLUME_RATIO_THRESHOLD = 2.0      # 放量倍数（成交量 >= 2倍5日均量）
+VOLUME_CONTINUOUS_DAYS = 2         # 连续放量天数要求
+VOLUME_MA_PERIOD = 5               # 前期均量计算周期
 
-# 震荡回调期：涨放量、跌缩量
-OSCILLATION_PERIOD = 10       # 震荡期观察天数
-RED_FAT_THRESHOLD = 1.2       # 红肥绿瘦比率阈值（上涨日成交量/下跌日成交量）
+# 阶段2：震荡回调红肥绿瘦
+OSCILLATION_MIN_DAYS = 2           # 震荡期最少天数
+RED_GREEN_RATIO_THRESHOLD = 1.2    # 红肥绿瘦比率阈值（上涨日均量/下跌日均量）
 
-# ==================== 阶段4: 回踩20日均线 ====================
+# 阶段3：回踩MA20
+MA20_PERIOD = 20                   # MA20周期
+MA20_TOLERANCE = 0.03               # 距MA20容差（±3%）
 
-# 回踩均线即提示机会
-MA_PERIOD = 20                # 均线周期，20日均线
-MA_TOLERANCE = 0.02           # 回踩容差，±2%
+# 阶段4：底分型确认（严格版本）
+# 定义：中间K线最低价最低 + 最高价低于左右两根
 
-# ==================== 数据获取 ====================
+# ==================== 回测参数 ====================
 
-# 默认日期范围
-START_DATE = '20240101'
-END_DATE = '20260411'         # 当前日期
+# 固定持有期天数
+HOLDING_PERIODS = [1, 2, 3, 5, 7, 14, 20, 30]
 
-# 创业板股票代码特征
-CHINEXT_PREFIX = '300'        # 创业板股票代码以300开头
+# 默认回测区间
+BACKTEST_START_DATE = '2025-01-01'
+BACKTEST_END_DATE = datetime.now().strftime('%Y-%m-%d')
 
-# 请求延时（避免API封禁）
-REQUEST_DELAY = 0.5           # 每次请求间隔（秒）
+# ==================== 股票范围 ====================
 
-# ==================== 输出设置 ====================
+# 有效股票代码前缀
+VALID_PREFIXES = ['600', '601', '603', '605', '000', '001', '002', '003', '300']
 
-# 输出格式
-OUTPUT_FORMAT = 'csv'
+# 排除的股票代码前缀
+EXCLUDE_PREFIXES = ['688', '8', '4', '900', '200']  # 科创板、北交所、B股
 
-# 图表设置
-CHART_DPI = 150               # 图表分辨率
-CHART_WIDTH = 14              # 图表宽度（英寸）
-CHART_HEIGHT = 8              # 图表高度（英寸）
+# ==================== 数据获取参数 ====================
 
-# ==================== 测试样本 ====================
+# 数据源优先级：baostock > akshare
+REQUEST_DELAY = 0.3                # API请求间隔（秒），避免封禁
 
-# 创业板测试样本（用于快速验证）
-TEST_SAMPLES = [
-    '300001',  # 特锐德
-    '300002',  # 神州泰岳
-    '300003',  # 乐普医疗
-    '300004',  # 南风股份
-    '300005',  # 探路者
-    '300006',  # 莱美药业
-    '300007',  # 汉威科技
-    '300008',  # 天海防务
-    '300009',  # 安科生物
-    '300010',  # 立思辰
-]
+# 缓存有效期
+STOCK_POOL_CACHE_DAYS = 30         # 股票池缓存有效期（天）
+
+# 默认K线起始日期（用于首次获取）
+KLINE_START_DATE = '2024-01-01'
+
+# ==================== 可视化参数 ====================
+
+CHART_DPI = 150                    # 图表分辨率
+CHART_WIDTH = 14                   # 图表宽度（英寸）
+CHART_HEIGHT = 8                   # 图表高度（英寸）
+
+# ==================== 推送参数 ====================
+
+# Server酱API
+SERVERCHAN_API_URL = 'https://sctapi.ftqq.com/{send_key}.send'
+
+# 环境变量名
+SERVERCHAN_KEY_ENV = 'SERVERCHAN_KEY'
+
+# ==================== 初始化 ====================
+
+def ensure_dirs():
+    """确保所有目录存在"""
+    for dir_path in [OUTPUT_DIR, DATA_DIR, CACHE_DIR, CHARTS_DIR, REPORTS_DIR]:
+        os.makedirs(dir_path, exist_ok=True)
+
+# 启动时自动创建目录
+ensure_dirs()
