@@ -20,7 +20,7 @@ import sys
 from datetime import datetime
 
 import config
-from backtest.runner_resumable import run_backtest_resumable
+from backtest.runner import run_backtest
 from monitor.daily import run_daily_monitor
 from monitor.push import send_test_message
 from data.limit_up_pool import update_limit_up_history, backfill_limit_up_history, get_candidate_pool
@@ -131,7 +131,7 @@ def run_backtest_mode(args):
             use_stock_pool = args.pool  # 使用预定义池
 
     try:
-        results, stats = run_backtest_resumable(
+        results, stats, signals_file = run_backtest(
             start_date=args.start,
             end_date=args.end,
             use_cache=not args.no_cache,
