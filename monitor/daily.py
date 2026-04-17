@@ -39,6 +39,8 @@ class DailyMonitor:
         self.send_key = send_key or os.environ.get(config.SERVERCHAN_KEY_ENV, '')
         self.pusher = ServerChanPusher(self.send_key)
         self.today = datetime.now().strftime('%Y-%m-%d')
+        # 实际检测日期（根据K线数据最新日期确定）
+        self.signal_date = None
 
     def update_pool(self) -> Dict:
         """
@@ -75,49 +77,48 @@ class DailyMonitor:
 
     def scan_signals(self, candidates: List[str]) -> List[Dict]:
         """
-        扫描候选池检测今日信号（与回测共用detect_signal函数）
+        扫描候选池检测信号（与回测共用detect_signal函数）
+
+        每个股票用自己的K线最新日期检测信号
 
         Args:
             candidates: 候选股代码列表
 
         Returns:
-            List[Dict]: 今日信号列表
+            List[Dict]: 信号列表
         """
         print("\n[Step 3] 更新候选池K线...")
         klines = batch_fetch_klines(candidates)
 
-        print("\n[Step 4] 检测今日信号...")
+        print("\n[Step 4] 检测信号（使用各股票K线最新日期）...")
         signals = []
 
         for code in candidates:
             kline = klines.get(code)
 
             if kline is None or kline.empty or len(kline) < config.MA20_PERIOD + 10:
-                # 获取名称（如果有的话）
                 name = kline['name'].iloc[-1] if kline is not None and 'name' in kline.columns else ''
                 display = f"{code} {name}" if name else code
                 print(f"  {display}: 数据不足")
                 continue
 
-            # 获取股票名称
+            # 获取股票名称和最新日期
             name = kline['name'].iloc[-1] if 'name' in kline.columns else ''
+            latest_date = kline['date'].max()
             display = f"{code} {name}" if name else code
 
-            # 检测今日信号（共用detect_signal函数）
-            result = detect_signal(kline, self.today)
+            # 用该股票的K线最新日期检测信号
+            result = detect_signal(kline, latest_date)
 
             if result['signal']:
-                # 确认信号日期是今天
-                signal_date = result['signal_date']
-                if signal_date == self.today or signal_date.replace('-', '') == self.today.replace('-', ''):
-                    signals.append(result)
-                    signal_name = result.get('name', name)
-                    signal_display = f"{result['code']} {signal_name}" if signal_name else result['code']
-                    print(f"  {signal_display}: ✓ 发现信号!")
+                signals.append(result)
+                signal_name = result.get('name', name)
+                signal_display = f"{result['code']} {signal_name}" if signal_name else result['code']
+                print(f"  {signal_display}: ✓ 发现信号! (日期: {latest_date})")
             else:
                 print(f"  {display}: × {result['reason']}")
 
-        print(f"\n今日发现 {len(signals)} 个信号")
+        print(f"\n发现 {len(signals)} 个信号")
         return signals
 
     def save_signals(self, signals: List[Dict]) -> str:
@@ -207,7 +208,7 @@ class DailyMonitor:
         print("=" * 60)
         print("暴力战法每日信号监控")
         print("=" * 60)
-        print(f"今日日期: {self.today}")
+        print(f"当前日期: {self.today}")
         print(f"运行时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print("=" * 60)
 
@@ -253,6 +254,8 @@ class DailyMonitor:
 
         print("\n" + "=" * 60)
         print("每日监控完成!")
+        if self.signal_date:
+            print(f"检测日期: {self.signal_date}")
         print("=" * 60)
 
         return signals

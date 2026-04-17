@@ -231,13 +231,14 @@ def get_kline(code: str, use_cache: bool = True) -> pd.DataFrame:
         cached = load_kline_cache(code)
         if not cached.empty:
             last_date = cached['date'].max()
-            # 缓存数据足够（覆盖到最近），直接返回
-            # 回测不需要"今天"的数据，只要缓存有足够历史数据即可
-            if len(cached) >= config.MA20_PERIOD + 30:  # 至少有50条数据
-                return cached  # 直接返回缓存，不尝试增量获取
-
-            # 数据不足才尝试增量获取
-            start_date = (datetime.strptime(last_date, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+            # 检查缓存是否最新
+            # 如果缓存最新日期 < 今天，需要增量更新
+            if last_date < end_date:
+                # 缓存不是最新的，增量获取新数据
+                start_date = (datetime.strptime(last_date, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+            else:
+                # 缓存已是最新，直接返回
+                return cached
         else:
             cached = pd.DataFrame()
             start_date = config.KLINE_START_DATE
