@@ -3,7 +3,7 @@
 实现暴力战法的4阶段顺序检测逻辑
 
 阶段顺序：
-1. 放量吸筹：连续>=2天成交量>=2倍5日均量且上涨
+1. 阶段性放量吸筹：最近3天日均量 >= 1.5倍"之前20天日均量"，连续>=3天
 2. 震荡回调红肥绿瘦：放量结束后，涨日均量/跌日均量>=1.2
 3. 回踩MA20：收盘价距20日均线±3%
 4. 底分型确认：T-1日形成底分型（严格版本）
@@ -22,12 +22,14 @@ import config
 
 def detect_stage1_volume(kline: pd.DataFrame, signal_idx: int = None) -> Dict:
     """
-    阶段1：放量吸筹检测
+    阶段1：阶段性放量吸筹检测（新逻辑）
 
     检测逻辑：
-    - 从signal_idx往前回溯，找连续放量上涨的日期
-    - 放量定义：成交量 >= 2倍5日均量 且 收盘价 > 开盘价（上涨）
-    - 要求连续>=2天
+    - 对比"最近N天日均量" vs "之前M天日均量"
+    - 最近3天日均量 >= 1.5倍"之前20天日均量"
+    - 要求连续>=3天满足此条件
+
+    这种方法能识别出主力阶段性温和放量吸筹，而非短期单日突变。
 
     Args:
         kline: K线数据
@@ -39,11 +41,12 @@ def detect_stage1_volume(kline: pd.DataFrame, signal_idx: int = None) -> Dict:
             'volume_days': int,  # 连续放量天数
             'volume_dates': List[str],  # 放量日期列表
             'end_idx': int,  # 放量结束位置索引
+            'vol_ratio': float,  # 放量期间平均比值
             'reason': str
         }
     """
-    if kline.empty or len(kline) < config.VOLUME_MA_PERIOD + 5:
-        return {'satisfied': False, 'volume_days': 0, 'volume_dates': [], 'end_idx': -1, 'reason': '数据不足'}
+    if kline.empty or len(kline) < config.VOLUME_BASELINE_PERIOD + config.VOLUME_COMPARE_PERIOD + 5:
+        return {'satisfied': False, 'volume_days': 0, 'volume_dates': [], 'end_idx': -1, 'vol_ratio': 0, 'reason': '数据不足'}
 
     # 默认用最后一天作为检测日
     signal_idx = signal_idx or len(kline) - 1
@@ -51,35 +54,49 @@ def detect_stage1_volume(kline: pd.DataFrame, signal_idx: int = None) -> Dict:
     # 只使用signal_idx及之前的数据
     check_kline = kline.iloc[:signal_idx + 1].copy()
 
-    # 计算5日均量
-    check_kline['vol_ma5'] = check_kline['volume'].rolling(window=config.VOLUME_MA_PERIOD).mean()
+    # 计算基准均量（之前N天的日均量，不含最近COMPARE_PERIOD天）
+    # 使用shift确保基准不包含当前比较期
+    check_kline['vol_baseline'] = check_kline['volume'].rolling(
+        window=config.VOLUME_BASELINE_PERIOD
+    ).mean().shift(config.VOLUME_COMPARE_PERIOD)
 
-    # 判断是否放量上涨
-    check_kline['is_volume_breakout'] = check_kline['volume'] >= check_kline['vol_ma5'] * config.VOLUME_RATIO_THRESHOLD
-    check_kline['is_up'] = check_kline['close'] > check_kline['open']
-    check_kline['is_volume_up'] = check_kline['is_volume_breakout'] & check_kline['is_up']
+    # 计算当前均量（最近COMPARE_PERIOD天的日均量）
+    check_kline['vol_current'] = check_kline['volume'].rolling(
+        window=config.VOLUME_COMPARE_PERIOD
+    ).mean()
 
-    # 从signal_idx往前找连续放量上涨
+    # 计算阶段性放量比值
+    check_kline['vol_phase_ratio'] = check_kline['vol_current'] / check_kline['vol_baseline']
+
+    # 判断是否满足阶段性放量条件
+    check_kline['is_phase_volume'] = check_kline['vol_phase_ratio'] >= config.VOLUME_PHASE_RATIO
+
+    # 从signal_idx往前找连续满足阶段性放量的天数
     volume_dates = []
+    volume_ratios = []
     consecutive_count = 0
 
-    for i in range(signal_idx, max(signal_idx - 25, config.VOLUME_MA_PERIOD), -1):
-        if check_kline['is_volume_up'].iloc[i]:
+    for i in range(signal_idx, max(signal_idx - 30, config.VOLUME_BASELINE_PERIOD + config.VOLUME_COMPARE_PERIOD), -1):
+        if pd.notna(check_kline['is_phase_volume'].iloc[i]) and check_kline['is_phase_volume'].iloc[i]:
             consecutive_count += 1
             date = check_kline['date'].iloc[i] if 'date' in check_kline.columns else str(i)
+            ratio = check_kline['vol_phase_ratio'].iloc[i]
             volume_dates.append(date)
+            volume_ratios.append(ratio)
         else:
             # 遇到不满足的，停止（只统计最近的连续天数）
-            if consecutive_count >= config.VOLUME_CONTINUOUS_DAYS:
+            if consecutive_count >= config.VOLUME_PHASE_MIN_DAYS:
                 break
             consecutive_count = 0
             volume_dates = []
+            volume_ratios = []
 
     # 放量日期按时间顺序排列（从早到晚）
     volume_dates = volume_dates[::-1]
+    volume_ratios = volume_ratios[::-1]
 
     # 判断是否满足
-    satisfied = consecutive_count >= config.VOLUME_CONTINUOUS_DAYS
+    satisfied = consecutive_count >= config.VOLUME_PHASE_MIN_DAYS
 
     # 找到最后一个放量日索引
     end_idx = -1
@@ -90,12 +107,16 @@ def detect_stage1_volume(kline: pd.DataFrame, signal_idx: int = None) -> Dict:
                 end_idx = i
                 break
 
+    # 计算平均放量比值
+    avg_ratio = np.mean(volume_ratios) if volume_ratios else 0
+
     return {
         'satisfied': satisfied,
         'volume_days': consecutive_count,
         'volume_dates': volume_dates,
         'end_idx': end_idx,
-        'reason': f'连续放量{consecutive_count}天' if satisfied else f'放量天数不足（{consecutive_count}<{config.VOLUME_CONTINUOUS_DAYS}）'
+        'vol_ratio': round(avg_ratio, 2),
+        'reason': f'阶段性放量{consecutive_count}天，平均比值{avg_ratio:.1f}x' if satisfied else f'阶段性放量天数不足（{consecutive_count}<{config.VOLUME_PHASE_MIN_DAYS}）'
     }
 
 
